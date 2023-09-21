@@ -26,11 +26,11 @@ RedRemoteDebugSessionsPresenter class >> debugWorldMenuOn: aBuilder [
 		icon: (self iconNamed: #remote);
 		parent: #Red;
 		help: 'Reset the counters on the executions counters.';
-		action: [ self new openWithSpec ]
+		action: [ self new open ]
 ]
 
-{ #category : #specs }
-RedRemoteDebugSessionsPresenter class >> defaultSpec [
+{ #category : #layout }
+RedRemoteDebugSessionsPresenter class >> defaultLayout [
 
 	^ SpBoxLayout newTopToBottom
 		  add: #toolbar expand: false;
@@ -57,7 +57,9 @@ RedRemoteDebugSessionsPresenter >> buildToolbar [
 			 buildToolbarButtonLabeled: 'Debug'
 			 action: [ :context | context debugSelection ]
 			 iconNamed: #glamorousBug).
-	^ commandGroup asToolbarPresenter
+	^ self newToolbar
+		  fillWith: commandGroup;
+		  yourself
 ]
 
 { #category : #actions }
@@ -103,7 +105,7 @@ RedRemoteDebugSessionsPresenter >> proceedSelection [
 ]
 
 { #category : #announcements }
-RedRemoteDebugSessionsPresenter >> remoteDebuggerRemoved [
+RedRemoteDebugSessionsPresenter >> remoteDebuggerRemoved: aRedRemoteDebuggerClosedAnnouncement [
 
 	sessions items: RedDebuggerClient current registeredDebuggers values
 ]

@@ -6,15 +6,15 @@ Class {
 	#name : #RedRemoteDebuggerPresenter,
 	#superclass : #RedAbstractDebuggerPresenter,
 	#instVars : [
-		'remote',
 		'stack',
-		'code'
+		'code',
+		'debuggerActionModel'
 	],
 	#category : #Red
 }
 
-{ #category : #specs }
-RedRemoteDebuggerPresenter class >> defaultSpec [
+{ #category : #layout }
+RedRemoteDebuggerPresenter class >> defaultLayout [
 
 	^ SpBoxLayout newTopToBottom
 		  add: #stack;
@@ -26,7 +26,7 @@ RedRemoteDebuggerPresenter class >> defaultSpec [
 { #category : #'instance creation' }
 RedRemoteDebuggerPresenter class >> openOn: aRemote [
 
-	(self on: aRemote) openWithSpec
+	(self on: aRemote) open
 ]
 
 { #category : #building }
@@ -43,23 +43,31 @@ RedRemoteDebuggerPresenter >> buildToolbar [
 			 buildToolbarButtonLabeled: 'Over'
 			 action: [ :context | context over ]
 			 iconNamed: #glamorousOver).
-			
+
 	commandGroup register: (self
 			 buildToolbarButtonLabeled: 'Through'
 			 action: [ :context | context through ]
 			 iconNamed: #glamorousThrough).
-			
+
 	commandGroup register: (self
 			 buildToolbarButtonLabeled: 'Restart'
 			 action: [ :context | context restart ]
 			 iconNamed: #glamorousRestart).
-			
+
 	commandGroup register: (self
 			 buildToolbarButtonLabeled: 'Proceed'
 			 action: [ :context | context proceed ]
 			 iconNamed: #glamorousGo).
 
-	^ commandGroup asToolbarPresenter
+	^ self newToolbar
+		  fillWith: commandGroup;
+		  yourself
+]
+
+{ #category : #accessing }
+RedRemoteDebuggerPresenter >> debuggerActionModel [
+
+	^ debuggerActionModel
 ]
 
 { #category : #initialization }
@@ -107,35 +115,31 @@ RedRemoteDebuggerPresenter >> initializePresenters [
 { #category : #'remote actions' }
 RedRemoteDebuggerPresenter >> into [
 
-	self updateStack:
-		(RedDebuggerClient current
-			 into: stack selectedItem
-			 inSession: remote)
+	self debuggerActionModel stepInto: stack selectedItem.
+	self updateStep
 ]
 
 { #category : #'remote actions' }
 RedRemoteDebuggerPresenter >> over [
 
-	self updateStack:
-		(RedDebuggerClient current
-			 over: stack selectedItem
-			 inSession: remote)
+	self debuggerActionModel stepOver: stack selectedItem.
+	self updateStep
 ]
 
 { #category : #private }
 RedRemoteDebuggerPresenter >> printReceiverClass: aRemoteContext [
 
-	| receiverClass method methodClass |
-	receiverClass := aRemoteContext findSmalltalkClass.
-	aRemoteContext isBlock ifTrue:[^ receiverClass name ].
-	method := aRemoteContext findMethod ifNil:[^''].
-	methodClass := method methodClass.
-	receiverClass == methodClass ifTrue: [ ^ receiverClass name ].
+	| receiverClassName method methodClassName |
+	receiverClassName := aRemoteContext receiverClassName.
+	aRemoteContext isBlock ifTrue: [ ^ receiverClassName ].
+	method := aRemoteContext findMethod ifNil: [ ^ '' ].
+	methodClassName := method methodClassName.
+	receiverClassName = methodClassName ifTrue: [ ^ receiverClassName ].
 	^ (WriteStream on: String new)
-		  nextPutAll: receiverClass name;
+		  nextPutAll: receiverClassName;
 		  space;
 		  nextPut: $(;
-		  nextPutAll: methodClass name;
+		  nextPutAll: methodClassName;
 		  nextPut: $);
 		  contents
 ]
@@ -143,7 +147,7 @@ RedRemoteDebuggerPresenter >> printReceiverClass: aRemoteContext [
 { #category : #'remote actions' }
 RedRemoteDebuggerPresenter >> proceed [
 
-	RedDebuggerClient current proceedSession: remote.
+	self debuggerActionModel proceedDebugSession.
 
 	self withWindowDo: #close
 ]
@@ -153,48 +157,50 @@ RedRemoteDebuggerPresenter >> recompileCurrentContextWithNewSource [
 	|remoteContext newSource|
 	remoteContext := stack selectedItem.
 	newSource := code text.
-	self updateStack: (RedDebuggerClient current
-			 recompile: remoteContext
-			 inSession: remote
-			 withSource: newSource).
-	remoteContext findSmalltalkClass compile: newSource.
-	self updateCodeFromContext: stack selectedItem
+	
+	self debuggerActionModel recompileMethodTo: newSource inContext: remoteContext notifying: nil.
+	
+	self updateContextChanged
+
+	"self updateCodeFromContext: stack selectedItem"
+]
+
+{ #category : #accessing }
+RedRemoteDebuggerPresenter >> remote [
+
+	^ self debuggerActionModel session
 ]
 
 { #category : #'remote actions' }
 RedRemoteDebuggerPresenter >> restart [
 
-	self updateStack: (RedDebuggerClient current
-			 restart: stack selectedItem
-			 inSession: remote)
+	self debuggerActionModel restartContext: stack selectedItem.
+	self updateRestart
 ]
 
-{ #category : #initialization }
+{ #category : #'accessing - model' }
 RedRemoteDebuggerPresenter >> setModelBeforeInitialization: aRemote [
 
-	remote := aRemote
+	debuggerActionModel := RedRemoteDebuggerActionModel on: aRemote
 ]
 
 { #category : #'remote actions' }
 RedRemoteDebuggerPresenter >> through [
 
-	self updateStack: (RedDebuggerClient current
-			 through: stack selectedItem
-			 inSession: remote)
+	self debuggerActionModel stepThrough: stack selectedItem.
+	self updateStep
 ]
 
-{ #category : #accessing }
+{ #category : #TOREMOVE }
 RedRemoteDebuggerPresenter >> title [
-	^remote sessionDescription 
+	^ self remote sessionDescription 
 ]
 
 { #category : #updating }
 RedRemoteDebuggerPresenter >> updateCodeFromContext: aRemoteContext [
 
 	| source selectionInterval |
-	source := aRemoteContext isDoIt
-		          ifTrue: [ aRemoteContext doItSource ]
-		          ifFalse: [ aRemoteContext findMethod sourceCode ].
+	source := aRemoteContext source.
 	code text: source.
 	code beForMethod: aRemoteContext findMethod.
 	aRemoteContext isDoIt ifTrue: [ ^ self ].
@@ -206,10 +212,22 @@ RedRemoteDebuggerPresenter >> updateCodeFromContext: aRemoteContext [
 			 yourself)
 ]
 
+{ #category : #'updating - actions' }
+RedRemoteDebuggerPresenter >> updateContextChanged [
+
+	self updateStep
+]
+
+{ #category : #'updating - actions' }
+RedRemoteDebuggerPresenter >> updateRestart [
+
+	self updateStep
+]
+
 { #category : #updating }
 RedRemoteDebuggerPresenter >> updateStack [
 
-	self updateStack: (RedDebuggerClient current stackFor: remote)
+	self updateStack: debuggerActionModel stack
 ]
 
 { #category : #updating }
@@ -217,4 +235,10 @@ RedRemoteDebuggerPresenter >> updateStack: remoteContexts [
 
 	stack items: remoteContexts.
 	stack selectIndex: 1
+]
+
+{ #category : #'updating - actions' }
+RedRemoteDebuggerPresenter >> updateStep [
+
+	self updateStack
 ]
